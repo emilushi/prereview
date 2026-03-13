@@ -1,6 +1,7 @@
 package copilot
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -29,7 +30,8 @@ func NewClient() (*Client, error) {
 	})
 
 	// Start the client (spawns Copilot CLI in server mode)
-	if err := client.Start(); err != nil {
+	ctx := context.Background()
+	if err := client.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start Copilot CLI: %w. Please install copilot-cli: brew install copilot-cli", err)
 	}
 
@@ -45,20 +47,22 @@ func (c *Client) Chat(model string, prompt string) (string, error) {
 
 	// Map model name
 	apiModel := mapModelName(model)
+	ctx := context.Background()
 
 	// Create a session with the specified model
-	session, err := c.sdkClient.CreateSession(&copilot.SessionConfig{
+	session, err := c.sdkClient.CreateSession(ctx, &copilot.SessionConfig{
 		Model: apiModel,
 		SystemMessage: &copilot.SystemMessageConfig{
 			Mode: "append",
 			Content: "You are a helpful code review assistant. Provide clear, actionable feedback on code changes. " +
 				"Focus on security vulnerabilities, performance issues, bug risks, code style, and best practices.",
 		},
+		OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Destroy()
+	defer session.Disconnect()
 
 	// Set up response collection
 	var response strings.Builder
@@ -84,7 +88,7 @@ func (c *Client) Chat(model string, prompt string) (string, error) {
 	defer unsubscribe()
 
 	// Send the prompt
-	_, err = session.Send(copilot.MessageOptions{
+	_, err = session.Send(ctx, copilot.MessageOptions{
 		Prompt: prompt,
 	})
 	if err != nil {

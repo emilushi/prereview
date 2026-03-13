@@ -4,7 +4,7 @@ go 1.25.6
 
 require (
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/github/copilot-sdk/go v0.1.16
+	github.com/github/copilot-sdk/go v0.1.32
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 )

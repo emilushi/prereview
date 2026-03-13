@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/emilushi/prereview/internal/copilot"
 	"github.com/emilushi/prereview/internal/git"
 	"github.com/emilushi/prereview/internal/ui"
 	"github.com/spf13/cobra"
@@ -56,6 +57,9 @@ func runDoctor(cmd *cobra.Command, args []string) {
 
 	// Check 4: Copilot CLI authenticated
 	results = append(results, checkCopilotAuth())
+
+	// Check 5: Copilot SDK/CLI protocol compatibility
+	results = append(results, checkCopilotProtocol())
 
 	// Print results
 	for _, r := range results {
@@ -233,6 +237,59 @@ func checkCopilotAuth() checkResult {
 	}
 }
 
+func checkCopilotProtocol() checkResult {
+	// First check if copilot is installed
+	copilotCmd := findCopilotCommand()
+	if copilotCmd == "" {
+		return checkResult{
+			name:    "SDK/CLI compatibility",
+			ok:      false,
+			message: "cannot check - Copilot CLI not installed",
+		}
+	}
+
+	// Try to create a client - this will fail if there's a protocol mismatch
+	client, err := copilot.NewClient()
+	if err != nil {
+		errStr := err.Error()
+		
+		// Check for protocol version mismatch
+		if strings.Contains(errStr, "protocol version mismatch") ||
+			strings.Contains(errStr, "SDK expects version") {
+			return checkResult{
+				name:    "SDK/CLI compatibility",
+				ok:      false,
+				message: "protocol version mismatch between SDK and Copilot CLI",
+				help:    getCopilotProtocolHelp(),
+			}
+		}
+		
+		// Other startup errors (might be auth related, etc.)
+		return checkResult{
+			name:    "SDK/CLI compatibility",
+			ok:      false,
+			message: fmt.Sprintf("failed to connect: %s", truncateError(errStr, 60)),
+			help:    getCopilotProtocolHelp(),
+		}
+	}
+	
+	// Success - clean up the client
+	client.Close()
+	
+	return checkResult{
+		name:    "SDK/CLI compatibility",
+		ok:      true,
+		message: "SDK and Copilot CLI are compatible",
+	}
+}
+
+func truncateError(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
 func findCopilotCommand() string {
 	commands := []string{"copilot", "github-copilot-cli"}
 	for _, cmd := range commands {
@@ -282,6 +339,41 @@ func getCopilotAuthHelp(copilotCmd string) string {
 	sb.WriteString("  You need an active GitHub Copilot subscription.\n\n")
 	sb.WriteString("  After login, verify with:\n")
 	sb.WriteString(fmt.Sprintf("    $ %s auth status\n", copilotCmd))
+	return sb.String()
+}
+
+func getCopilotProtocolHelp() string {
+	os := runtime.GOOS
+
+	var sb strings.Builder
+	sb.WriteString("  SDK/CLI protocol version mismatch detected.\n\n")
+	sb.WriteString("  This happens when the Copilot CLI version is incompatible with\n")
+	sb.WriteString("  the SDK version used by prereview.\n\n")
+	sb.WriteString("  To fix, update your Copilot CLI:\n\n")
+
+	switch os {
+	case "darwin":
+		sb.WriteString("    macOS (Homebrew):\n")
+		sb.WriteString("    $ brew upgrade copilot-cli\n")
+	case "linux":
+		sb.WriteString("    Linux (Homebrew):\n")
+		sb.WriteString("    $ brew upgrade copilot-cli\n\n")
+		sb.WriteString("    Or download the latest from:\n")
+		sb.WriteString("    https://github.com/github/copilot-cli/releases\n")
+	case "windows":
+		sb.WriteString("    Windows (winget):\n")
+		sb.WriteString("    > winget upgrade GitHub.CopilotCLI\n\n")
+		sb.WriteString("    Windows (Scoop):\n")
+		sb.WriteString("    > scoop update copilot-cli\n")
+	default:
+		sb.WriteString("    Download the latest from:\n")
+		sb.WriteString("    https://github.com/github/copilot-cli/releases\n")
+	}
+
+	sb.WriteString("\n  If the issue persists after updating, you may need to update\n")
+	sb.WriteString("  prereview itself to get a compatible SDK version:\n")
+	sb.WriteString("    $ go install github.com/emilushi/prereview@latest\n")
+
 	return sb.String()
 }
 
